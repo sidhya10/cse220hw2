@@ -86,8 +86,9 @@ void store_values(unsigned int packets[], char *memory) {
     }
 }
 
-#define MAX_COMPLETIONS 10000
-
+#define COMPLETER_ID 220
+#define MEMORY_SIZE (1024 * 1024)  // 1MB memory size
+#define MAX_COMPLETIONS (MEMORY_SIZE / 4 + 3 * (MEMORY_SIZE / 0x4000 + 1))  // Worst case: entire memory + headers
 
 unsigned int* create_completion(unsigned int packets[], const char *memory) {
     unsigned int *completions = malloc(MAX_COMPLETIONS * sizeof(unsigned int));
@@ -105,13 +106,12 @@ unsigned int* create_completion(unsigned int packets[], const char *memory) {
         unsigned int tag = get_bits(current_packet[1], 8, 15);
         unsigned int first_be = get_bits(current_packet[1], 0, 3);
         unsigned int last_be = get_bits(current_packet[1], 4, 7);
-        unsigned int address = get_bits(current_packet[2], 2, 31) * 4;  // Convert to byte address
-
-        unsigned int bytes_to_read = length * 4;
-        unsigned int current_address = address;
+        unsigned int address = get_bits(current_packet[2], 2, 31) * 4;
+        unsigned int address_offset = get_bits(current_packet[2], 0, 1);
+        address += address_offset;  // Apply the offset
 
         // Calculate total byte count considering byte enable fields
-        unsigned int total_byte_count = bytes_to_read;
+        unsigned int total_byte_count = length * 4;
         if (length == 1) {
             total_byte_count = __builtin_popcount(first_be);
         } else if (length > 1) {
@@ -120,6 +120,7 @@ unsigned int* create_completion(unsigned int packets[], const char *memory) {
         }
 
         unsigned int remaining_byte_count = total_byte_count;
+        unsigned int current_address = address;
 
         while (remaining_byte_count > 0) {
             unsigned int chunk_size = 0x4000 - (current_address % 0x4000);
@@ -129,16 +130,24 @@ unsigned int* create_completion(unsigned int packets[], const char *memory) {
 
             unsigned int chunk_length = (chunk_size + 3) / 4;
 
+            // Ensure we have enough space in completions array
+            if (completion_index + chunk_length + 3 >= MAX_COMPLETIONS) {
+                free(completions);
+                return NULL;  // Buffer overflow, return NULL
+            }
+
             // Completion header
             completions[completion_index++] = 0x4A000000 | chunk_length;
-            completions[completion_index++] = (220 << 16) | remaining_byte_count;
+            completions[completion_index++] = (COMPLETER_ID << 16) | remaining_byte_count;
             completions[completion_index++] = (requester_id << 16) | (tag << 8) | (current_address & 0x7F);
 
             // Copy data from memory to completions
             for (unsigned int i = 0; i < chunk_length; i++) {
                 unsigned int data = 0;
                 for (int j = 0; j < 4 && (i * 4 + j) < chunk_size; j++) {
-                    data |= (unsigned char)memory[current_address + i * 4 + j] << (j * 8);
+                    if (current_address + i * 4 + j < MEMORY_SIZE) {
+                        data |= (unsigned char)memory[current_address + i * 4 + j] << (j * 8);
+                    }
                 }
                 completions[completion_index++] = data;
             }
@@ -151,7 +160,12 @@ unsigned int* create_completion(unsigned int packets[], const char *memory) {
     }
 
     // Add terminating 0
-    completions[completion_index] = 0;
+    if (completion_index < MAX_COMPLETIONS) {
+        completions[completion_index] = 0;
+    } else {
+        free(completions);
+        return NULL;  // Buffer overflow, return NULL
+    }
 
     return completions;
 }
