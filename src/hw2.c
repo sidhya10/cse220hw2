@@ -15,7 +15,8 @@ void print_packet(unsigned int packet[]) {
     
     // Check for invalid packet type
     if (type != 0 && type != 1) {
-        return;  // Invalid packet type, don't print anything
+        printf("No Output (invalid packet)\n");
+        return;
     }
 
     unsigned int length = packet[0] & 0x3FF;
@@ -23,17 +24,13 @@ void print_packet(unsigned int packet[]) {
     unsigned int tag = (packet[1] >> 8) & 0xFF;
     unsigned int last_be = (packet[1] >> 4) & 0xF;
     unsigned int first_be = packet[1] & 0xF;
-    unsigned int address = packet[2] & 0xFFFFFFFC;  // Mask off the bottom 2 bits
+    unsigned int address = packet[2];
+    unsigned int address_offset = address & 0x3;  // Get the 2 least significant bits
+    address = (address & 0xFFFFFFFC) + address_offset;  // Apply the offset
 
-    // Adjust address calculation
-    address = (address / 4) * 4 + 1;
 
-    // Print packet type
-    if (type == 0) {
-        printf("Packet Type: Read\n");
-    } else {
-        printf("Packet Type: Write\n");
-    }
+    // Print packet type with "Packet Type: " prefix
+    printf("Packet Type: %s\n", (type == 0) ? "Read" : "Write");
 
     // Print the fields in the correct order
     printf("Address: %d\n", address);
@@ -54,6 +51,7 @@ void print_packet(unsigned int packet[]) {
         printf("Data:\n");
     }
 }
+
 
 void store_values(unsigned int packets[], char *memory) {
     unsigned int *packet = packets;
