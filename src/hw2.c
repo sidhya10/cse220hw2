@@ -44,11 +44,13 @@ void print_packet(unsigned int packet[]) {
     if (type == 1) {  // Write Request
         printf("Data:");
         for (unsigned int i = 0; i < length; i++) {
-            printf(" %d ", (int)packet[3 + i]);  // Print data payload as signed integers
+            printf(" %d", (int)packet[3 + i]);
+          // Print data payload as signed integers
         }
         printf(" ");
+        printf("\n");
     } else {  // Read Request
-        printf("Data:\n");
+        printf("Data: \n");
     }
 }
 
